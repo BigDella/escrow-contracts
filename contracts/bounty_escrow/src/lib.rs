@@ -9,6 +9,18 @@ mod types;
 #[cfg(test)]
 extern crate std;
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    reason = "tests may panic on unexpected results and use plain arithmetic to compute expected values"
+)]
 mod test;
 
 use soroban_sdk::{
@@ -62,7 +74,10 @@ fn undefer(env: &Env, token: &Address, net: i128) -> Result<(), Error> {
 
 #[contractimpl]
 impl BountyEscrow {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "init takes every config field at once so the contract is never half-configured"
+    )]
     pub fn init(
         env: Env,
         admin: Address,
@@ -101,7 +116,10 @@ impl BountyEscrow {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a contract entry point; its arguments are the public ABI"
+    )]
     pub fn fund_bounty(
         env: Env,
         maintainer: Address,
@@ -138,7 +156,7 @@ impl BountyEscrow {
             return Err(Error::IssueAlreadyFunded);
         }
 
-        let id = storage::next_id(&env);
+        let id = storage::next_id(&env)?;
         storage::set_bounty(
             &env,
             &Bounty {
@@ -359,7 +377,14 @@ impl BountyEscrow {
         winner_bps: u32,
         evidence_hash: BytesN<32>,
     ) -> Result<(), Error> {
-        settle(&env, arbiter, bounty_id, winner, winner_bps, Some(evidence_hash))
+        settle(
+            &env,
+            arbiter,
+            bounty_id,
+            winner,
+            winner_bps,
+            Some(evidence_hash),
+        )
     }
 
     /// Lengthens an open bounty. Extend only: the deadline a contributor saw can never move earlier.
@@ -432,7 +457,7 @@ impl BountyEscrow {
 
         b.amount = new_amount;
         storage::set_bounty(&env, &b);
-        storage::set_top_ups(&env, bounty_id, uses + 1);
+        storage::set_top_ups(&env, bounty_id, uses.checked_add(1).ok_or(Error::Overflow)?);
         let mut t = storage::get_totals(&env, &b.token);
         t.funded = add(t.funded, extra)?;
         t.held = add(t.held, extra)?;

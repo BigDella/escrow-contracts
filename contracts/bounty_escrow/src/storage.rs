@@ -36,10 +36,11 @@ pub fn set_config(env: &Env, c: &Config) {
     bump_instance(env);
 }
 
-pub fn next_id(env: &Env) -> u64 {
+pub fn next_id(env: &Env) -> Result<u64, Error> {
     let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(1);
-    env.storage().instance().set(&DataKey::NextId, &(id + 1));
-    id
+    let next = id.checked_add(1).ok_or(Error::Overflow)?;
+    env.storage().instance().set(&DataKey::NextId, &next);
+    Ok(id)
 }
 
 pub fn get_token(env: &Env, token: &Address) -> Option<TokenLimits> {
@@ -131,7 +132,9 @@ pub fn dispute_timeout(env: &Env) -> u64 {
 }
 
 pub fn set_dispute_timeout(env: &Env, secs: u64) {
-    env.storage().instance().set(&DataKey::DisputeTimeout, &secs);
+    env.storage()
+        .instance()
+        .set(&DataKey::DisputeTimeout, &secs);
     bump_instance(env);
 }
 
