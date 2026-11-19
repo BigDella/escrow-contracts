@@ -43,7 +43,7 @@ decides *whether a payment is allowed at all*, and that is the part you should a
 | | |
 |---|---|
 | **Deployed on testnet** | [`CCEKBPYC…ZF3J4RKN`](https://stellar.expert/explorer/testnet/contract/CCEKBPYCWKNTXIQLXJHVAF7RYGUZZ6MITA7VVJBOK5BHXUO44ELZ4F4V) |
-| **Size** | 21,408 bytes of Wasm, 29 entry points |
+| **Size** | 35,115 bytes of Wasm, 30 entry points |
 | **Tests** | 63, including a property test of the funds invariant |
 | **Built with** | Rust 1.99.1 · `soroban-sdk` 29.0.1 · target `wasm32v1-none` |
 | **Audited** | ❌ **No.** See [Before mainnet](#before-mainnet). |
@@ -57,9 +57,11 @@ decides *whether a payment is allowed at all*, and that is the part you should a
 # You also need the Stellar CLI 28.1.0:  brew install stellar-cli
 
 ./scripts/build.sh    # optimised Wasm; prints the size and sha256
-cargo test            # 63 tests
-cargo clippy --all-targets -- -D warnings
+cargo test            # 67 tests
+cargo clippy --all-targets -- -D warnings   # stricter lint set from [workspace.lints] in Cargo.toml
 cargo fmt --check
+shellcheck scripts/*.sh scripts/tests/*.sh   # lint the bash scripts
+cargo llvm-cov --package bounty_escrow       # optional: coverage (needs cargo-llvm-cov)
 ```
 
 ### Windows
@@ -242,6 +244,22 @@ Opt out and the relayer key is worthless against that bounty; the maintainer sig
 
 Auth is tested two ways: `env.mock_all_auths()` where authorisation is not the subject, and
 `env.set_auths(&[])` where it is, so an auth check cannot silently disappear.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `fresh-build` and `main`. A newer
+push to the same PR cancels the older run, and Cargo's registry and `target/` are cached, keyed on
+`rust-toolchain.toml` and `Cargo.lock`.
+
+| Job | What it checks |
+|---|---|
+| `test` | Build, reproducible build, contract docs, deploy-script tests, `cargo fmt`, `cargo clippy` (strict lints, `-D warnings`), `cargo test` |
+| `coverage` | `cargo llvm-cov` over the test suite; the lcov, HTML report and summary are uploaded as the `coverage` artifact and shown in the job summary |
+| `shellcheck` | `shellcheck` over `scripts/*.sh` and `scripts/tests/*.sh`. Fix warnings, or disable one inline with `# shellcheck disable=SCxxxx` and a comment saying why |
+| `audit` | `cargo audit` against the RustSec advisory database |
+
+The clippy lint set (`arithmetic_side_effects`, the `cast_*` lints, `unwrap_used`, `expect_used`, `panic`,
+`indexing_slicing`) lives in `[workspace.lints.clippy]` in `Cargo.toml`. Any `allow` must carry a `reason`.
 
 ---
 
