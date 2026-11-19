@@ -43,7 +43,9 @@ assert_eq() {
 # assert_delta <label> <expected_delta> <balance_before> <balance_after>
 assert_delta() {
   local label=$1 expected=$2 before=$3 after=$4
-  is_int "$before" && is_int "$after" || fail "$label: non-integer balance (before '$before', after '$after')"
+  if ! is_int "$before" || ! is_int "$after"; then
+    fail "$label: non-integer balance (before '$before', after '$after')"
+  fi
   local delta=$(( after - before ))
   if (( delta != expected )); then
     fail "$label: expected delta $expected, got $delta (before $before, after $after)"
