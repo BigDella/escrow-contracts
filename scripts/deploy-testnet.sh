@@ -6,6 +6,13 @@
 # See README.md ("Deploying your own") for the list.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Refuse before deploying anything: a second deploy would orphan the recorded contract.
+RECORD=deployments/testnet.json
+if [ -f "$RECORD" ] && [ "${OVERWRITE_DEPLOYMENT:-}" != "1" ]; then
+  echo "refusing to overwrite $RECORD: $(cat "$RECORD")" >&2
+  echo "set OVERWRITE_DEPLOYMENT=1 to deploy a new contract and replace that record" >&2
+  exit 1
+fi
 ADMIN=${ADMIN:-se-testnet-admin}; ARBITER=${ARBITER:-se-testnet-arbiter}
 TREASURY=${TREASURY:-se-testnet-treasury}; RELAYER=${RELAYER:-se-testnet-relayer}
 TESTNET_USDC=${TESTNET_USDC:-}  # optional: verify the USDC SAC id from Circle/Stellar docs first

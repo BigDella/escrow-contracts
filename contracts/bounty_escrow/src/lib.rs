@@ -162,11 +162,20 @@ impl BountyEscrow {
         t.held = add(t.held, amount)?;
         storage::set_totals(&env, &token, &t);
 
-        token::Client::new(&env, &token).transfer(
-            &maintainer,
-            env.current_contract_address(),
-            &amount,
-        );
+        // Fee-on-transfer and other non-standard tokens can credit less than
+        // `amount`. Measure what actually arrived and reject if it differs, so
+        // `held` never exceeds the contract's real balance (accounting invariant).
+        let client = token::Client::new(&env, &token);
+        let contract = env.current_contract_address();
+        let before = client.balance(&contract);
+        client.transfer(&maintainer, &contract, &amount);
+        let received = client
+            .balance(&contract)
+            .checked_sub(before)
+            .ok_or(Error::Overflow)?;
+        if received != amount {
+            return Err(Error::UnexpectedTransferAmount);
+        }
         events::Funded {
             id,
             maintainer,

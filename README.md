@@ -62,6 +62,22 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+### Windows
+
+Native Windows can run `cargo` directly, but the build, deploy and smoke scripts are bash. Pick one:
+
+- **WSL2 (recommended):** install Ubuntu from the Microsoft Store and follow the Quick start inside it.
+- **Git Bash + native Rust:** install [rustup](https://rustup.rs) for Windows and Git for Windows. Run the
+  scripts from Git Bash, for example `./scripts/build.sh`. Install the Stellar CLI 28.1.0 with
+  `cargo install --locked stellar-cli --version 28.1.0` or from its v28.1.0 release page.
+
+Two gotchas on Windows:
+
+- Clone with LF line endings. With `core.autocrlf=true`, the `.sh` scripts get CRLF endings and fail
+  with `$'\r': command not found`. Fix with `git config core.autocrlf input` and re-clone.
+- `rust-toolchain.toml` installs the pinned toolchain and the `wasm32v1-none` target automatically, so
+  you do not need to add the target by hand.
+
 > **Run `./scripts/build.sh` before `cargo test`.** The upgrade test embeds the built Wasm, so the
 > file has to exist. CI does the same, in that order.
 
@@ -72,6 +88,9 @@ cargo fmt --check
 ./scripts/smoke-testnet.sh     # fund → release and fund → dispute → resolve, against the real network
 ./scripts/bindings.sh          # regenerate the TypeScript client into ../skillescrow-app
 ```
+
+`deploy-testnet.sh` refuses to run if `deployments/testnet.json` already exists, because a new deploy would
+leave the recorded contract behind. To deploy a new contract and replace the record, set `OVERWRITE_DEPLOYMENT=1`.
 
 `deploy-testnet.sh` expects four Stellar CLI identities — `se-testnet-admin`, `se-testnet-arbiter`,
 `se-testnet-treasury`, `se-testnet-relayer`. Create them with `stellar keys generate <name> --network testnet --fund`.
@@ -135,6 +154,7 @@ Stable numbering — **never renumbered after deploy**, because clients map on t
  4 Paused               10 BountyNotFound     16 Overflow
  5 TokenNotAllowed      11 InvalidStatus      17 RelayerNotAllowed
  6 AmountTooSmall       12 DeadlineNotReached
+18 TopUpLimitReached    24 UnexpectedTransferAmount
 ```
 
 ### Events
