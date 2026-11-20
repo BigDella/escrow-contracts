@@ -29,7 +29,10 @@ use soroban_sdk::{
 };
 
 pub use errors::Error;
-pub use types::{Bounty, Config, DataKey, Status, TokenLimits, Totals};
+pub use types::{
+    Bounty, Config, DataKey, RefundSettlement, ReleaseSettlement, ResolveSettlement, Status,
+    TokenLimits, Totals,
+};
 use types::{ClaimRecord, DisputeRecord};
 
 /// Top-ups per bounty. Bounds storage and event volume.
@@ -89,7 +92,7 @@ impl BountyEscrow {
         grace_secs: u64,
         min_duration_secs: u64,
         max_duration_secs: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<u64, Error> {
         admin.require_auth();
         if storage::has_config(&env) {
             return Err(Error::AlreadyInitialized);
@@ -215,7 +218,7 @@ impl BountyEscrow {
         caller: Address,
         bounty_id: u64,
         winner: Address,
-    ) -> Result<(), Error> {
+    ) -> Result<ReleaseSettlement, Error> {
         caller.require_auth();
         let cfg = storage::get_config(&env)?;
         let mut b = storage::get_bounty(&env, bounty_id)?;
@@ -279,10 +282,18 @@ impl BountyEscrow {
             deferred: !paid,
         }
         .publish(&env);
-        Ok(())
+        Ok(ReleaseSettlement {
+            net,
+            fee,
+            deferred: !paid,
+        })
     }
 
-    pub fn refund(env: Env, maintainer: Address, bounty_id: u64) -> Result<(), Error> {
+    pub fn refund(
+        env: Env,
+        maintainer: Address,
+        bounty_id: u64,
+    ) -> Result<RefundSettlement, Error> {
         maintainer.require_auth();
         let cfg = storage::get_config(&env)?;
         let mut b = storage::get_bounty(&env, bounty_id)?;
@@ -317,7 +328,7 @@ impl BountyEscrow {
             amount: b.amount,
         }
         .publish(&env);
-        Ok(())
+        Ok(RefundSettlement { amount: b.amount })
     }
 
     /// Return the exact ledger timestamp at which `refund` becomes valid.
@@ -372,7 +383,7 @@ impl BountyEscrow {
         bounty_id: u64,
         winner: Option<Address>,
         winner_bps: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<ResolveSettlement, Error> {
         settle(&env, arbiter, bounty_id, winner, winner_bps, None)
     }
 
@@ -387,7 +398,7 @@ impl BountyEscrow {
         winner: Option<Address>,
         winner_bps: u32,
         evidence_hash: BytesN<32>,
-    ) -> Result<(), Error> {
+    ) -> Result<ResolveSettlement, Error> {
         settle(
             &env,
             arbiter,
@@ -586,6 +597,7 @@ impl BountyEscrow {
                 max_amount: max,
             },
         );
+        events::TokenSet { token, min, max }.publish(&env);
         changed(
             &env,
             symbol_short!("token"),
@@ -600,6 +612,7 @@ impl BountyEscrow {
             return Err(Error::TokenNotAllowed);
         }
         storage::remove_token(&env, &token);
+        events::TokenRemoved { token }.publish(&env);
         changed(&env, symbol_short!("token"), token.into_val(&env));
         Ok(())
     }
@@ -717,7 +730,7 @@ fn settle(
     winner: Option<Address>,
     winner_bps: u32,
     evidence: Option<BytesN<32>>,
-) -> Result<(), Error> {
+) -> Result<ResolveSettlement, Error> {
     arbiter.require_auth();
     let cfg = storage::get_config(env)?;
     if arbiter != cfg.arbiter {
@@ -805,5 +818,10 @@ fn settle(
         }
         .publish(env);
     }
-    Ok(())
+    Ok(ResolveSettlement {
+        winner_net,
+        fee,
+        maintainer_amount,
+        winner_deferred,
+    })
 }

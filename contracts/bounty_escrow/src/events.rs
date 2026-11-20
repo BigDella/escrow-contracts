@@ -58,6 +58,20 @@ pub struct ConfigChanged {
     pub value: Val,
 }
 
+#[contractevent(topics = ["bounty", "token_set"])]
+pub struct TokenSet {
+    #[topic]
+    pub token: Address,
+    pub min: i128,
+    pub max: i128,
+}
+
+#[contractevent(topics = ["bounty", "token_removed"])]
+pub struct TokenRemoved {
+    #[topic]
+    pub token: Address,
+}
+
 #[contractevent(topics = ["bounty", "paused"])]
 pub struct Paused {
     pub admin: Address,

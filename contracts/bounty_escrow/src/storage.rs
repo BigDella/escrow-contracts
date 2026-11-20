@@ -106,10 +106,7 @@ pub fn clear_active(env: &Env, repo_id: u64, issue: u64) {
 pub fn get_totals(env: &Env, token: &Address) -> Totals {
     let key = DataKey::Totals(token.clone());
     match env.storage().persistent().get(&key) {
-        Some(t) => {
-            bump_persistent(env, &key);
-            t
-        }
+        Some(t) => t,
         None => Totals::default(),
     }
 }
