@@ -43,7 +43,7 @@ decides *whether a payment is allowed at all*, and that is the part you should a
 | | |
 |---|---|
 | **Deployed on testnet** | [`CCEKBPYC…ZF3J4RKN`](https://stellar.expert/explorer/testnet/contract/CCEKBPYCWKNTXIQLXJHVAF7RYGUZZ6MITA7VVJBOK5BHXUO44ELZ4F4V) |
-| **Size** | 35,115 bytes of Wasm, 30 entry points |
+| **Size** | 35,115 bytes of Wasm (40 KiB CI gate), 30 entry points |
 | **Tests** | 63, including a property test of the funds invariant |
 | **Built with** | Rust 1.99.1 · `soroban-sdk` 29.0.1 · target `wasm32v1-none` |
 | **Audited** | ❌ **No.** See [Before mainnet](#before-mainnet). |
@@ -56,13 +56,12 @@ decides *whether a payment is allowed at all*, and that is the part you should a
 # Rust 1.99.1 installs itself from rust-toolchain.toml, with the wasm32v1-none target.
 # You also need the Stellar CLI 28.1.0:  brew install stellar-cli
 
-./scripts/build.sh    # optimised Wasm; prints the size and sha256
-cargo test            # 67 tests
-cargo clippy --all-targets -- -D warnings   # stricter lint set from [workspace.lints] in Cargo.toml
-cargo fmt --check
-shellcheck scripts/*.sh scripts/tests/*.sh   # lint the bash scripts
-cargo llvm-cov --package bounty_escrow       # optional: coverage (needs cargo-llvm-cov)
+make check   # build, reproducible build, docs, fmt, clippy, tests and shellcheck
 ```
+
+`make check` runs the same order as CI. `make ci` additionally runs `cargo deny check`
+and `cargo audit`, so install those two tools first. The individual targets are listed in
+`make help`; `cargo llvm-cov --package bounty_escrow` remains the optional coverage command.
 
 ### Windows
 
@@ -91,12 +90,25 @@ Two gotchas on Windows:
 ./scripts/bindings.sh          # regenerate the TypeScript client into ../skillescrow-app
 ```
 
-`deploy-testnet.sh` refuses to run if `deployments/testnet.json` already exists, because a new deploy would
+`deploy-testnet.sh` refuses to run if its deployment record already exists, because a new deploy would
 leave the recorded contract behind. To deploy a new contract and replace the record, set `OVERWRITE_DEPLOYMENT=1`.
 
 `deploy-testnet.sh` expects four Stellar CLI identities — `se-testnet-admin`, `se-testnet-arbiter`,
 `se-testnet-treasury`, `se-testnet-relayer`. Create them with `stellar keys generate <name> --network testnet --fund`.
 Set `TESTNET_USDC` to a verified USDC SAC id to allowlist USDC as well.
+
+The deploy and smoke scripts are network-aware. `NETWORK` defaults to `testnet`; `KEY_PREFIX` defaults
+to `se-<network>-`; `DEPLOYMENT_FILE` defaults to `deployments/<network>.json`. For example, against a
+local Quickstart network:
+
+```bash
+stellar container start local
+make smoke-local              # creates se-local-* identities, deploys and runs the smoke test
+stellar container stop local
+```
+
+`make smoke-local` overwrites `deployments/local.json` (ignored by git) so it can be rerun against a
+fresh local ledger. The local network is also exercised by the `smoke-local` CI job.
 
 `deploy-testnet.sh` also reads these optional init parameters. Each defaults to the value the script
 has always used. The effective values are printed before the deploy transaction is sent.
@@ -230,7 +242,7 @@ Opt out and the relayer key is worthless against that bounty; the maintainer sig
 ## Testing
 
 ```bash
-./scripts/build.sh && cargo test
+make check
 ```
 
 | Area | Tests | Covers |
@@ -240,10 +252,26 @@ Opt out and the relayer key is worthless against that bounty; the maintainer sig
 | `refund` | 8 | The exact `deadline + grace` boundary, works while paused, no fee taken, ordering against release |
 | `dispute` | 14 | Who may open, splits at 0 / 5000 / 10000 bps with exact arithmetic, non-arbiter rejection |
 | `admin` | 14 | Init once, fee cap, two-party `set_admin`, token removal, a real `upgrade` |
+| `budgets` | 1 | CPU, memory and ledger read/write budgets for each state-changing entry point, compared with `docs/budgets.json` |
 | `invariants` | 1 | Property test — random operation sequences, checked after every step |
 
 Auth is tested two ways: `env.mock_all_auths()` where authorisation is not the subject, and
 `env.set_auths(&[])` where it is, so an auth check cannot silently disappear.
+
+### Resource budgets and Wasm size
+
+`docs/budgets.json` stores the committed ceilings for CPU instructions, memory bytes and ledger
+read/write entries and bytes. `cargo test --package bounty_escrow budgets -- --nocapture` prints the
+table and fails if a metric exceeds its ceiling by more than 10%. After an intentional change, refresh
+the snapshot deliberately:
+
+```bash
+UPDATE_BUDGETS=1 cargo test --package bounty_escrow budgets -- --nocapture
+```
+
+CI runs `scripts/check-wasm-size.sh` after the build. It fails above 40 KiB and writes the size,
+headroom and SHA-256 to the job summary. The mainnet resource limits are listed next to the budget
+table in [`docs/CONTRACT.md`](docs/CONTRACT.md#resource-budgets).
 
 ### Continuous integration
 
@@ -253,10 +281,12 @@ push to the same PR cancels the older run, and Cargo's registry and `target/` ar
 
 | Job | What it checks |
 |---|---|
-| `test` | Build, reproducible build, contract docs, deploy-script tests, `cargo fmt`, `cargo clippy` (strict lints, `-D warnings`), `cargo test` |
+| `test` | Build, Wasm size gate, reproducible build, contract docs, deploy-script tests, `cargo fmt`, `cargo clippy` (strict lints, `-D warnings`), `cargo test` (including the resource-budget snapshot) |
 | `coverage` | `cargo llvm-cov` over the test suite; the lcov, HTML report and summary are uploaded as the `coverage` artifact and shown in the job summary |
 | `shellcheck` | `shellcheck` over `scripts/*.sh` and `scripts/tests/*.sh`. Fix warnings, or disable one inline with `# shellcheck disable=SCxxxx` and a comment saying why |
 | `audit` | `cargo audit` against the RustSec advisory database |
+| `deny` | `cargo deny check` against `deny.toml`: advisories, licences, banned crates and unknown sources |
+| `smoke-local` | Starts a local Stellar Quickstart container, deploys, and runs the fund/release and dispute/resolve smoke flow against it |
 
 The clippy lint set (`arithmetic_side_effects`, the `cast_*` lints, `unwrap_used`, `expect_used`, `panic`,
 `indexing_slicing`) lives in `[workspace.lints.clippy]` in `Cargo.toml`. Any `allow` must carry a `reason`.
@@ -279,7 +309,8 @@ Run `scripts/deploy-mainnet.sh --dry-run` first. It enforces the items marked **
 `cargo audit` passes with one documented exception: `RUSTSEC-2026-0387` (`crypto-bigint` 0.5.5) is
 reached only through the SDK's **test** host, is not in the deployed Wasm, and cannot be bumped until
 upstream moves. The justification lives in [`.cargo/audit.toml`](.cargo/audit.toml) and is re-checked
-on every SDK upgrade.
+on every SDK upgrade. [`deny.toml`](deny.toml) applies the same exception, plus the licence, banned-crate
+and source policy enforced by `cargo deny check`.
 
 ---
 

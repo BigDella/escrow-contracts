@@ -38,6 +38,8 @@ jobs:
       - uses: ./.github/actions/setup-stellar
       # the upgrade test embeds the built wasm, so build before fmt/clippy/test
       - run: ./scripts/build.sh
+      - name: check wasm size
+        run: bash scripts/check-wasm-size.sh
       - run: bash scripts/reproducible-build.sh
       - run: python3 scripts/check_contract_docs.py
       - run: bash scripts/tests/deploy-mainnet.test.sh
@@ -109,3 +111,59 @@ jobs:
       - name: install cargo-audit
         run: command -v cargo-audit || cargo install --locked cargo-audit --version 0.23.0
       - run: cargo audit
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # deny.toml is the policy; the action installs cargo-deny and fetches the advisory DB.
+      - uses: EmbarkStudios/cargo-deny-action@2b70cf22ed5701843749a917048c3aaaf420a7d9 # v2.1.3
+        with:
+          command: check
+
+  smoke-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: rustup show
+      - uses: ./.github/actions/setup-stellar
+      - name: start local Stellar network
+        run: stellar container start local --limits unlimited
+      - name: wait for local RPC
+        run: |
+          for _ in $(seq 1 60); do
+            if stellar network health --network local >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "local Stellar RPC did not become healthy" >&2
+          exit 1
+      - name: create and fund local identities
+        run: |
+          for role in admin arbiter treasury relayer maintainer contributor; do
+            stellar keys generate "se-local-$role"
+          done
+          for role in admin arbiter treasury relayer maintainer contributor; do
+            for attempt in $(seq 1 10); do
+              if stellar keys fund "se-local-$role" --network local; then
+                break
+              fi
+              if [ "$attempt" -eq 10 ]; then
+                echo "could not fund se-local-$role" >&2
+                exit 1
+              fi
+              sleep 3
+            done
+          done
+      - name: deploy and run the smoke test
+        env:
+          NETWORK: local
+          KEY_PREFIX: se-local-
+          DEPLOYMENT_FILE: deployments/local.json
+        run: |
+          ./scripts/deploy-testnet.sh
+          ./scripts/smoke-testnet.sh
+      - name: stop local Stellar network
+        if: always()
+        run: stellar container stop local
