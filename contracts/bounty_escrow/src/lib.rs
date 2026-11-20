@@ -24,7 +24,8 @@ extern crate std;
 mod test;
 
 use soroban_sdk::{
-    contract, contractimpl, symbol_short, token, Address, BytesN, ContractExecutable, Env, Symbol,
+    contract, contractimpl, symbol_short, token, Address, BytesN, ContractExecutable, Env, IntoVal,
+    Symbol, Val,
 };
 
 pub use errors::Error;
@@ -46,8 +47,8 @@ fn require_admin(env: &Env, admin: &Address) -> Result<Config, Error> {
     Ok(c)
 }
 
-fn changed(env: &Env, field: Symbol) {
-    events::ConfigChanged { field }.publish(env);
+fn changed(env: &Env, field: Symbol, value: Val) {
+    events::ConfigChanged { field, value }.publish(env);
 }
 
 fn add(a: i128, b: i128) -> Result<i128, Error> {
@@ -319,6 +320,16 @@ impl BountyEscrow {
         Ok(())
     }
 
+    /// Return the exact ledger timestamp at which `refund` becomes valid.
+    pub fn refundable_at(env: Env, bounty_id: u64) -> Result<u64, Error> {
+        let cfg = storage::get_config(&env)?;
+        let bounty = storage::get_bounty(&env, bounty_id)?;
+        bounty
+            .deadline
+            .checked_add(cfg.grace_secs)
+            .ok_or(Error::Overflow)
+    }
+
     pub fn open_dispute(env: Env, caller: Address, bounty_id: u64) -> Result<(), Error> {
         caller.require_auth();
         let cfg = storage::get_config(&env)?;
@@ -575,7 +586,11 @@ impl BountyEscrow {
                 max_amount: max,
             },
         );
-        changed(&env, symbol_short!("token"));
+        changed(
+            &env,
+            symbol_short!("token"),
+            (token, min, max).into_val(&env),
+        );
         Ok(())
     }
 
@@ -585,7 +600,7 @@ impl BountyEscrow {
             return Err(Error::TokenNotAllowed);
         }
         storage::remove_token(&env, &token);
-        changed(&env, symbol_short!("token"));
+        changed(&env, symbol_short!("token"), token.into_val(&env));
         Ok(())
     }
 
@@ -596,7 +611,7 @@ impl BountyEscrow {
         }
         c.fee_bps = fee_bps;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("fee"));
+        changed(&env, symbol_short!("fee"), fee_bps.into_val(&env));
         Ok(())
     }
 
@@ -604,7 +619,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.relayer = relayer;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("relayer"));
+        changed(&env, symbol_short!("relayer"), relayer.into_val(&env));
         Ok(())
     }
 
@@ -612,7 +627,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.arbiter = arbiter;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("arbiter"));
+        changed(&env, symbol_short!("arbiter"), arbiter.into_val(&env));
         Ok(())
     }
 
@@ -620,7 +635,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.treasury = treasury;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("treasury"));
+        changed(&env, symbol_short!("treasury"), treasury.into_val(&env));
         Ok(())
     }
 
@@ -628,7 +643,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.grace_secs = grace_secs;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("grace"));
+        changed(&env, symbol_short!("grace"), grace_secs.into_val(&env));
         Ok(())
     }
 
@@ -640,7 +655,7 @@ impl BountyEscrow {
         c.min_duration_secs = min;
         c.max_duration_secs = max;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("duration"));
+        changed(&env, symbol_short!("duration"), (min, max).into_val(&env));
         Ok(())
     }
 
@@ -650,7 +665,7 @@ impl BountyEscrow {
         new_admin.require_auth();
         c.admin = new_admin;
         storage::set_config(&env, &c);
-        changed(&env, symbol_short!("admin"));
+        changed(&env, symbol_short!("admin"), new_admin.into_val(&env));
         Ok(())
     }
 
@@ -659,7 +674,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.paused = true;
         storage::set_config(&env, &c);
-        events::Paused {}.publish(&env);
+        events::Paused { admin }.publish(&env);
         Ok(())
     }
 
@@ -667,7 +682,7 @@ impl BountyEscrow {
         let mut c = require_admin(&env, &admin)?;
         c.paused = false;
         storage::set_config(&env, &c);
-        events::Unpaused {}.publish(&env);
+        events::Unpaused { admin }.publish(&env);
         Ok(())
     }
 
@@ -677,7 +692,7 @@ impl BountyEscrow {
             return Err(Error::InvalidDeadline);
         }
         storage::set_dispute_timeout(&env, secs);
-        changed(&env, symbol_short!("dispute"));
+        changed(&env, symbol_short!("dispute"), secs.into_val(&env));
         Ok(())
     }
 
@@ -689,7 +704,7 @@ impl BountyEscrow {
         require_admin(&env, &admin)?;
         env.deployer()
             .update_current_contract(ContractExecutable::Wasm(wasm_hash.clone()));
-        events::Upgraded { wasm_hash }.publish(&env);
+        events::Upgraded { admin, wasm_hash }.publish(&env);
         Ok(())
     }
 }

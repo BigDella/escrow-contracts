@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, BytesN, Symbol};
+use soroban_sdk::{contractevent, Address, BytesN, Symbol, Val};
 
 #[contractevent(topics = ["bounty", "funded"])]
 pub struct Funded {
@@ -55,16 +55,22 @@ pub struct Resolved {
 pub struct ConfigChanged {
     #[topic]
     pub field: Symbol,
+    pub value: Val,
 }
 
 #[contractevent(topics = ["bounty", "paused"])]
-pub struct Paused {}
+pub struct Paused {
+    pub admin: Address,
+}
 
 #[contractevent(topics = ["bounty", "unpaused"])]
-pub struct Unpaused {}
+pub struct Unpaused {
+    pub admin: Address,
+}
 
 #[contractevent(topics = ["bounty", "upgraded"])]
 pub struct Upgraded {
+    pub admin: Address,
     pub wasm_hash: BytesN<32>,
 }
 
