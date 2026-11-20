@@ -48,6 +48,24 @@ pub struct Config {
     pub paused: bool,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RolesConfig {
+    pub admin: Address,
+    pub relayer: Address,
+    pub arbiter: Address,
+    pub treasury: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PolicyConfig {
+    pub fee_bps: u32,
+    pub grace_secs: u64,
+    pub min_duration_secs: u64,
+    pub max_duration_secs: u64,
+}
+
 /// Per-token accounting: funded == released_net + fees + refunded + held.
 #[contracttype]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -57,6 +75,7 @@ pub struct Totals {
     pub fees: i128,
     pub refunded: i128,
     pub held: i128,
+    pub accrued_fees: i128,
 }
 
 /// Written by `open_dispute`. Its presence means the bounty has used its one dispute.
@@ -102,6 +121,9 @@ pub struct ResolveSettlement {
 #[contracttype]
 pub enum DataKey {
     Config,
+    Roles,
+    Policy,
+    Paused,
     NextId,
     Bounty(u64),
     ActiveByIssue(u64, u64),
