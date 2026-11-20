@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# fund->release and fund->dispute->resolve with native XLM on testnet.
+# fund->release and fund->dispute->resolve with native XLM on a Stellar network.
+# NETWORK defaults to testnet; use NETWORK=local against a local Quickstart network.
+# KEY_PREFIX defaults to se-<network>- and names the required identities.
 # Asserts the balance deltas each step must cause, and the get_totals invariant at the end.
-# Requires Stellar CLI identities: se-testnet-admin, se-testnet-arbiter, se-testnet-treasury,
-# se-testnet-relayer, se-testnet-maintainer, se-testnet-contributor.
-# Create them with: stellar keys generate <name> --network testnet --fund
+# Requires Stellar CLI identities: <prefix>admin, <prefix>arbiter, <prefix>treasury,
+# <prefix>relayer, <prefix>maintainer, <prefix>contributor.
+# Create them with: stellar keys generate <name> --network <network> --fund
 # Exits non-zero on the first mismatch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ID=$(python3 -c 'import json;print(json.load(open("deployments/testnet.json"))["contract_id"])')
-NATIVE=$(stellar contract id asset --asset native --network testnet)
-a() { stellar keys address "se-testnet-$1"; }
+NETWORK=${NETWORK:-testnet}
+KEY_PREFIX=${KEY_PREFIX:-se-${NETWORK}-}
+RECORD=${DEPLOYMENT_FILE:-deployments/${NETWORK}.json}
+ID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contract_id"])' "$RECORD")
+NATIVE=$(stellar contract id asset --asset native --network "$NETWORK")
+a() { stellar keys address "${KEY_PREFIX}$1"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # Preflight check: verify required identities exist
 check_identity() {
   if ! a "$1" > /dev/null 2>&1; then
-    fail "identity 'se-testnet-$1' not found. Create it with: stellar keys generate se-testnet-$1 --network testnet --fund"
+    fail "identity '${KEY_PREFIX}$1' not found. Create it with: stellar keys generate ${KEY_PREFIX}$1 --network $NETWORK --fund"
   fi
 }
 # Preflight: check all required identities exist
@@ -25,13 +30,13 @@ done
 inv() {
   local src=$1; shift
   local out
-  if ! out=$(stellar contract invoke --id "$ID" --source "se-testnet-$src" --network testnet -- "$@" 2>&1); then
+  if ! out=$(stellar contract invoke --id "$ID" --source "${KEY_PREFIX}$src" --network "$NETWORK" -- "$@" 2>&1); then
     printf '%s\n' "$out" >&2
     fail "contract call '$1' from $src failed"
   fi
   printf '%s\n' "$out" | grep -v '^ℹ️\|^🌎\|^📅' || true
 }
-bal() { local out; out=$(stellar contract invoke --id "$NATIVE" --source se-testnet-admin --network testnet -- balance --id "$1" 2>/dev/null) || fail "balance read failed for $1"; tr -d '"' <<<"$out"; }
+bal() { local out; out=$(stellar contract invoke --id "$NATIVE" --source "${KEY_PREFIX}admin" --network "$NETWORK" -- balance --id "$1" 2>/dev/null) || fail "balance read failed for $1"; tr -d '"' <<<"$out"; }
 is_int() { [[ "$1" =~ ^-?[0-9]+$ ]]; }
 # assert_eq <label> <expected> <actual>
 assert_eq() {

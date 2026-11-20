@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
-# Deploys to testnet and writes deployments/testnet.json.
+# Deploys to a Stellar network and writes deployments/<network>.json.
+# NETWORK defaults to testnet; use NETWORK=local for a local Quickstart network.
 # Needs stellar identities (env overridable): ADMIN, ARBITER, TREASURY, RELAYER.
-# Also needs TESTNET_USDC (SAC contract id, verify from Circle/Stellar docs first).
+# KEY_PREFIX defaults to se-<network>- and names those identities.
+# TESTNET_USDC (optional) is the SAC contract id to allowlist in addition to native XLM.
 # Init parameters are env overridable too; defaults are the values this script has always used.
 # See README.md ("Deploying your own") for the list.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+NETWORK=${NETWORK:-testnet}
+KEY_PREFIX=${KEY_PREFIX:-se-${NETWORK}-}
 # Refuse before deploying anything: a second deploy would orphan the recorded contract.
-RECORD=deployments/testnet.json
+RECORD=${DEPLOYMENT_FILE:-deployments/${NETWORK}.json}
 if [ -f "$RECORD" ] && [ "${OVERWRITE_DEPLOYMENT:-}" != "1" ]; then
   echo "refusing to overwrite $RECORD: $(cat "$RECORD")" >&2
   echo "set OVERWRITE_DEPLOYMENT=1 to deploy a new contract and replace that record" >&2
   exit 1
 fi
-ADMIN=${ADMIN:-se-testnet-admin}; ARBITER=${ARBITER:-se-testnet-arbiter}
-TREASURY=${TREASURY:-se-testnet-treasury}; RELAYER=${RELAYER:-se-testnet-relayer}
+ADMIN=${ADMIN:-${KEY_PREFIX}admin}; ARBITER=${ARBITER:-${KEY_PREFIX}arbiter}
+TREASURY=${TREASURY:-${KEY_PREFIX}treasury}; RELAYER=${RELAYER:-${KEY_PREFIX}relayer}
 TESTNET_USDC=${TESTNET_USDC:-}  # optional: verify the USDC SAC id from Circle/Stellar docs first
 FEE_BPS=${FEE_BPS:-300}
 GRACE_SECS=${GRACE_SECS:-259200}
@@ -24,21 +28,21 @@ TOKEN_MIN=${TOKEN_MIN:-10000000}
 TOKEN_MAX=${TOKEN_MAX:-5000000000}
 ./scripts/build.sh
 W=target/wasm32v1-none/release/bounty_escrow.wasm
-echo "effective testnet parameters:"
+echo "effective $NETWORK parameters:"
 echo "  fee_bps=$FEE_BPS grace_secs=$GRACE_SECS min_duration_secs=$MIN_DURATION_SECS max_duration_secs=$MAX_DURATION_SECS"
 echo "  token min=$TOKEN_MIN max=$TOKEN_MAX"
 echo "  usdc=${TESTNET_USDC:-<unset>} admin=$ADMIN arbiter=$ARBITER treasury=$TREASURY relayer=$RELAYER"
-ID=$(stellar contract deploy --wasm "$W" --source "$ADMIN" --network testnet)
+ID=$(stellar contract deploy --wasm "$W" --source "$ADMIN" --network "$NETWORK")
 addr() { stellar keys address "$1"; }
-stellar contract invoke --id "$ID" --source "$ADMIN" --network testnet -- init \
+stellar contract invoke --id "$ID" --source "$ADMIN" --network "$NETWORK" -- init \
   --admin "$(addr "$ADMIN")" --relayer "$(addr "$RELAYER")" --arbiter "$(addr "$ARBITER")" \
   --treasury "$(addr "$TREASURY")" --fee_bps "$FEE_BPS" --grace_secs "$GRACE_SECS" \
   --min_duration_secs "$MIN_DURATION_SECS" --max_duration_secs "$MAX_DURATION_SECS"
-NATIVE=$(stellar contract id asset --asset native --network testnet)
+NATIVE=$(stellar contract id asset --asset native --network "$NETWORK")
 for T in ${TESTNET_USDC:+"$TESTNET_USDC"} "$NATIVE"; do
-  stellar contract invoke --id "$ID" --source "$ADMIN" --network testnet -- set_token \
+  stellar contract invoke --id "$ID" --source "$ADMIN" --network "$NETWORK" -- set_token \
     --admin "$(addr "$ADMIN")" --token "$T" --min "$TOKEN_MIN" --max "$TOKEN_MAX"
 done
-mkdir -p deployments
-printf '{"network":"testnet","contract_id":"%s"}\n' "$ID" > deployments/testnet.json
+mkdir -p "$(dirname "$RECORD")"
+printf '{"network":"%s","contract_id":"%s"}\n' "$NETWORK" "$ID" > "$RECORD"
 echo "contract: $ID"

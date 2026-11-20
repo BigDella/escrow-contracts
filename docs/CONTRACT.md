@@ -42,6 +42,61 @@ A deferred payout moves its net from `held` to `claimable` and does not touch `r
 ## TTL
 Ledgers are ~5 s (17,280/day). Persistent entries and the instance are extended to 120 d whenever under 30 d remain; worst-case bounty life is 90 d + 3 d grace = 93 d (compile-time asserted). Testnet max entry TTL is 3,110,400 ledgers; re-check on mainnet.
 
+## Resource budgets
+`contracts/bounty_escrow/src/test/budgets.rs` runs each state-changing entry point in the table below through `Env::cost_estimate()` and compares the result with `docs/budgets.json`. The test fails if CPU instructions, memory, read/write entries or read/write bytes exceed the snapshot by more than its `tolerance_percent` (10%). Refresh the snapshot deliberately after an intentional change:
+
+```bash
+UPDATE_BUDGETS=1 cargo test --package bounty_escrow budgets -- --nocapture
+```
+
+The numbers below are the committed budget ceilings, not an on-chain simulation. The local test host runs native Rust, so it underestimates Wasm execution; use `stellar contract invoke --cost` or RPC simulation before a mainnet release.
+
+| Entry point | CPU instructions | Memory bytes | Read entries | Write entries | Read bytes | Write bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| `init` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `fund_bounty` | 8,000,000 | 8,000,000 | 80 | 80 | 80,000 | 40,000 |
+| `release` (fee) | 10,000,000 | 10,000,000 | 100 | 100 | 100,000 | 50,000 |
+| `release` (no fee) | 9,000,000 | 9,000,000 | 90 | 90 | 90,000 | 45,000 |
+| `refund` | 8,000,000 | 8,000,000 | 80 | 80 | 80,000 | 40,000 |
+| `open_dispute` | 5,000,000 | 5,000,000 | 50 | 50 | 50,000 | 25,000 |
+| `resolve` (split) | 15,000,000 | 15,000,000 | 150 | 150 | 150,000 | 75,000 |
+| `resolve` (zero) | 12,000,000 | 12,000,000 | 120 | 120 | 120,000 | 60,000 |
+| `resolve_with_evidence` | 15,000,000 | 15,000,000 | 150 | 150 | 150,000 | 75,000 |
+| `top_up` | 8,000,000 | 8,000,000 | 80 | 80 | 80,000 | 40,000 |
+| `extend_deadline` | 5,000,000 | 5,000,000 | 50 | 50 | 50,000 | 25,000 |
+| `expire_dispute` | 5,000,000 | 5,000,000 | 50 | 50 | 50,000 | 25,000 |
+| `set_token` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `remove_token` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_fee` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_relayer` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_arbiter` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_treasury` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_grace` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_durations` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_admin` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `pause` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `unpause` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `set_dispute_timeout` | 3,000,000 | 3,000,000 | 40 | 40 | 40,000 | 20,000 |
+| `upgrade` | 6,000,000 | 6,000,000 | 60 | 60 | 60,000 | 30,000 |
+
+Mainnet limits from the `soroban-sdk` 29.0.1 snapshot (2026-07-10), so the headroom is visible:
+
+| Limit | Value |
+|---|---:|
+| CPU instructions | 400,000,000 |
+| Memory bytes | 41,943,040 |
+| Disk read entries | 200 |
+| Write entries | 200 |
+| Ledger entries | 400 |
+| Disk read bytes | 200,000 |
+| Write bytes | 132,096 |
+| Contract events | 16,384 bytes |
+| Contract data key | 250 bytes |
+| Contract data entry | 65,536 bytes |
+| Contract code entry | 131,072 bytes |
+
+CI also runs `scripts/check-wasm-size.sh` after the build. It fails above 40 KiB and writes the size, headroom and SHA-256 to the job summary.
+
 ## Trust model
 - **Admin** can change config and **upgrade the code** (so can in effect move escrowed funds). Must be a multisig before mainnet.
 - **Relayer** can release only bounties whose maintainer opted in, and only to a non-maintainer address; the per-token `max_amount` bounds exposure.
