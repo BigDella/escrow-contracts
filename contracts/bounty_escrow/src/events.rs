@@ -112,6 +112,14 @@ pub struct Claimed {
     pub net: i128,
 }
 
+#[contractevent(topics = ["bounty", "fees_withdrawn"])]
+pub struct FeesWithdrawn {
+    #[topic]
+    pub token: Address,
+    pub treasury: Address,
+    pub amount: i128,
+}
+
 /// The arbiter recorded the evidence behind a resolution. Emitted only by
 /// `resolve_with_evidence`, right after `resolved`.
 #[contractevent(topics = ["bounty", "evidence"])]
